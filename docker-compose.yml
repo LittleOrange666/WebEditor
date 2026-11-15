@@ -1,0 +1,38 @@
+# WebEditor 雲端版後端（spec_new §7.1）
+#   SQLite：            docker compose up -d
+#   PostgreSQL：        在 backend/.env 設定 DATABASE_URL 後 docker compose --profile postgres up -d
+# 對外只暴露 API 埠；HTTPS 請由自己的反向代理處理。
+services:
+  api:
+    build: ./backend
+    restart: unless-stopped
+    env_file:
+      - path: ./backend/.env
+        required: false
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - api-data:/data
+    depends_on:
+      db:
+        condition: service_healthy
+        required: false
+
+  db:
+    image: postgres:16-alpine
+    profiles: [postgres]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: webeditor
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-webeditor}
+      POSTGRES_DB: webeditor
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U webeditor"]
+      interval: 5s
+      retries: 10
+
+volumes:
+  api-data:
+  pg-data:

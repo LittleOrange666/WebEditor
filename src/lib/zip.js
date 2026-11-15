@@ -1,6 +1,6 @@
 // 上傳／下載 zip 與檔案（spec §3.4、§6.3.4）
 import JSZip from 'jszip';
-import { isJunkPath, decodeText, normalizePath, basename, dirname } from './paths.js';
+import { isJunkPath, decodeText, normalizePath, basename, dirname, sanitizeFileName } from './paths.js';
 
 export function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
@@ -97,6 +97,52 @@ function parseMeta(metaFiles) {
  */
 export async function buildZip(entries, { prefix = '', tests = null, projectName = '' } = {}) {
   const zip = new JSZip();
+  addProject(zip, entries, { prefix, tests, projectName });
+  return zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+}
+
+/**
+ * 多個專案打包成一個 zip（spec_new §4.6）：每個專案一個資料夾，格式與單一專案相同
+ * projects：[{ name, entries, tests }]
+ */
+export async function buildMultiZip(projects) {
+  const zip = new JSZip();
+  const used = new Set();
+  for (const p of projects) {
+    const base = sanitizeFileName(p.name || '') || 'project';
+    let folder = base;
+    for (let i = 1; used.has(folder.toLowerCase()); i++) folder = `${base} (${i})`;
+    used.add(folder.toLowerCase());
+    addProject(zip.folder(folder), p.entries, { tests: p.tests ?? {}, projectName: p.name });
+  }
+  return zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+}
+
+/**
+ * 若 zip 是「多個專案」的格式（每個頂層資料夾都有 .webeditor/project.json），回傳 [{ name, files, dirs, meta }]；否則回傳 null
+ */
+export async function readMultiZip(blob) {
+  const zip = await JSZip.loadAsync(blob);
+  const tops = new Set();
+  zip.forEach((rel) => { if (!isJunkPath(rel)) tops.add(rel.split('/')[0]); });
+  if (tops.size < 2) return null;
+  for (const t of tops) if (!zip.file(`${t}/.webeditor/project.json`)) return null;
+  const out = [];
+  for (const t of [...tops].sort()) {
+    const sub = new JSZip();
+    const jobs = [];
+    zip.folder(t).forEach((rel, entry) => {
+      if (entry.dir) sub.folder(rel);
+      else jobs.push(entry.async('uint8array').then((data) => sub.file(rel, data)));
+    });
+    await Promise.all(jobs);
+    const data = await readZip(await sub.generateAsync({ type: 'blob' }));
+    out.push({ name: data.meta?.project?.name || t, ...data });
+  }
+  return out;
+}
+
+function addProject(zip, entries, { prefix = '', tests = null, projectName = '' } = {}) {
   const base = prefix ? prefix + '/' : '';
   for (const f of entries) {
     if (prefix && f.path !== prefix && !f.path.startsWith(base)) continue;
@@ -122,7 +168,6 @@ export async function buildZip(entries, { prefix = '', tests = null, projectName
     }
     zip.file('.webeditor/project.json', JSON.stringify(project, null, 2));
   }
-  return zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
 }
 
 /**

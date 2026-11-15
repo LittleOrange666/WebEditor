@@ -16,14 +16,13 @@
   import CodeEditor from './components/CodeEditor.svelte';
   import TestPanel from './components/TestPanel.svelte';
   import TerminalPanel from './components/TerminalPanel.svelte';
-  import ShareDialog from './components/ShareDialog.svelte';
-  import ImportDialog from './components/ImportDialog.svelte';
+  import * as edition from '$edition';
+  import { ui, openModal, closeModal } from './lib/ui.svelte.js';
   import SettingsDialog from './components/SettingsDialog.svelte';
   import ProjectsDialog from './components/ProjectsDialog.svelte';
   import Docs from './components/Docs.svelte';
 
   let route = $state(location.hash);
-  let modal = $state(null); // { kind, ... }
   let treeOpen = $state(false);
   let panelOpen = $state(true);
   let panelHeight = $state(loadPanelHeight());
@@ -47,8 +46,11 @@
     return Math.max(160, saved || Math.round(window.innerHeight * 0.38));
   }
 
+  const Page = $derived(edition.PageFor(route));
+
   onMount(() => {
-    init().then(checkImportRoute);
+    edition.setup();
+    init().then(() => { edition.afterInit(); checkImportRoute(); });
     const mq = window.matchMedia('(max-width: 768px)');
     const md = window.matchMedia('(prefers-color-scheme: dark)');
     const onMq = () => { mobile = mq.matches; };
@@ -64,13 +66,13 @@
     };
   });
 
-  // 直接連結匯入：#/import/<ID>（spec §8.3）
+  // 版本專屬的直接連結（例如純前端版的 #/import/<ID>，spec §8.3）
   function checkImportRoute() {
-    const m = location.hash.match(/^#\/import\/(.+)$/);
-    if (!m || app.loading) return;
-    modal = { kind: 'import', id: decodeURIComponent(m[1]) };
-    history.replaceState(null, '', location.pathname + location.search + '#/');
-    route = '#/';
+    if (app.loading) return;
+    if (edition.handleRoute(location.hash, openModal)) {
+      history.replaceState(null, '', location.pathname + location.search + '#/');
+      route = '#/';
+    }
   }
 
   $effect(() => {
@@ -121,7 +123,7 @@
   }
 
   function onKeydown(e) {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && !e.defaultPrevented && !dialogState.current && !modal) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && !e.defaultPrevented && !dialogState.current && !ui.modal && !Page) {
       e.preventDefault();
       doRun();
     }
@@ -162,7 +164,9 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-{#if route.startsWith('#/docs')}
+{#if Page}
+  {#key route}<Page {route} {dark} />{/key}
+{:else if route.startsWith('#/docs')}
   <div class="docs-page">
     <header class="top"><a class="brand" href="#/">WebEditor</a><span class="sp"></span><a href="#/">回到編輯器</a></header>
     <Docs />
@@ -172,7 +176,7 @@
   <header class="top">
     {#if mobile}<button class="icon-btn" aria-label="檔案" onclick={() => (treeOpen = !treeOpen)}>☰</button>{/if}
     <span class="brand">WebEditor</span>
-    <button class="project-btn" onclick={() => (modal = { kind: 'projects' })} title="切換或管理專案">📁 {project?.name ?? '…'} ▾</button>
+    <button class="project-btn" onclick={() => openModal({ kind: 'projects' })} title="切換或管理專案">📁 {project?.name ?? '…'} ▾</button>
     <span class="sp"></span>
     <div class="seg" role="radiogroup" aria-label="執行模式">
       <button role="radio" aria-checked={mode === 'tests'} class:on={mode === 'tests'} disabled={run.running} onclick={() => setMode('tests')}>測資</button>
@@ -183,9 +187,8 @@
     {:else}
       <button class="primary run-btn" disabled={!runnable} title={runnable ? `執行 ${file.path}（Ctrl+Enter）` : '請開啟 .cpp / .py / .js 檔案'} onclick={doRun}>▶ 執行</button>
     {/if}
-    <button disabled={!file || !!file?.binary} onclick={() => (modal = { kind: 'share' })} title="上傳目前的檔案到 APCS Code Noter">分享</button>
-    <button onclick={() => (modal = { kind: 'import' })} title="從 APCS Code Noter 匯入">匯入</button>
-    <button class="icon-btn" aria-label="設定" title="設定" onclick={() => (modal = { kind: 'settings' })}>⚙</button>
+    <edition.TopBar {file} />
+    <button class="icon-btn" aria-label="設定" title="設定" onclick={() => openModal({ kind: 'settings' })}>⚙</button>
     <a class="icon-btn help" href="#/docs" title="使用說明" aria-label="使用說明">?</a>
   </header>
 
@@ -293,14 +296,12 @@
 </div>
 {/if}
 
-{#if modal?.kind === 'share' && file}
-  <ShareDialog {file} onclose={() => (modal = null)} />
-{:else if modal?.kind === 'import'}
-  <ImportDialog initialId={modal.id ?? ''} onclose={() => (modal = null)} />
-{:else if modal?.kind === 'settings'}
-  <SettingsDialog onclose={() => (modal = null)} />
-{:else if modal?.kind === 'projects'}
-  <ProjectsDialog onclose={() => (modal = null)} />
+{#if ui.modal?.kind === 'settings'}
+  <SettingsDialog onclose={closeModal} />
+{:else if ui.modal?.kind === 'projects'}
+  <ProjectsDialog onclose={closeModal} />
+{:else}
+  <edition.Modals {file} />
 {/if}
 
 <Dialogs />

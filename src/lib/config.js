@@ -28,3 +28,8 @@ export const DEFAULT_CODENOTER_PROXY = import.meta.env?.VITE_CODENOTER_PROXY ?? 
 export const CODENOTER_ORIGIN = 'https://coder.apcs.top';
 
 export const LARGE_FILE_BYTES = 5 * 1024 * 1024;
+
+// 版本（spec_new §1）：建置時由 vite.config.js 決定
+export const EDITION = import.meta.env?.VITE_EDITION === 'cloud' ? 'cloud' : 'static';
+export const IS_CLOUD = EDITION === 'cloud';
+export const API_BASE = import.meta.env?.VITE_API_BASE ?? '';

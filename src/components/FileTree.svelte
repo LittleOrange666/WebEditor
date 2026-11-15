@@ -1,6 +1,6 @@
 <script>
   // 檔案樹（spec §3.2、§3.4）
-  import { app, openTab, moveEntry, validateMove } from '../lib/store.svelte.js';
+  import { app, openTab, moveEntry, validateMove, hooks } from '../lib/store.svelte.js';
   import { basename, dirname, langOf } from '../lib/paths.js';
   import { readDataTransfer } from '../lib/zip.js';
   import * as act from '../lib/actions.js';
@@ -178,6 +178,7 @@
       >
         <span class="icon">{icon(entry)}</span>
         <span class="name" title={entry.path}>{basename(entry.path)}</span>
+        {#if hooks.entryBadge(entry)}{@const badge = hooks.entryBadge(entry)}<span class="badge" title={badge.title}>{badge.icon}</span>{/if}
         {#if app.locks[entry.id] === 'waiting'}<span class="badge" title="正在其他分頁編輯中">🔒</span>{/if}
         <button class="more" aria-label="更多動作" onclick={(e) => openMenu(e, entry)}>⋯</button>
       </div>

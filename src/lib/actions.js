@@ -1,10 +1,10 @@
 // 使用者動作：上傳、下載、新增、刪除…（含對話框流程），供各元件共用
 import {
   app, importFiles, ensureFolders, createProjectFrom, currentProject, fileById, replaceTests,
-  createFile, createFolder, renameEntry, deleteEntry, validateNewName, validateMove, moveEntry, flushAll, fileByPath,
+  createFile, createFolder, renameEntry, deleteEntry, validateNewName, validateMove, moveEntry, flushAll, fileByPath, openProject,
 } from './store.svelte.js';
 import { alertDialog, confirmDialog, promptDialog, choiceDialog, toast } from './dialog.svelte.js';
-import { readZip, buildZip, readLocalFiles, downloadBlob, downloadFileEntry } from './zip.js';
+import { readZip, readMultiZip, buildZip, readLocalFiles, downloadBlob, downloadFileEntry } from './zip.js';
 import { basename, dirname, joinPath, formatBytes, normalizePath } from './paths.js';
 import { LARGE_FILE_BYTES } from './config.js';
 
@@ -58,11 +58,14 @@ export async function uploadZip(file, destDir = app.selectedDir) {
     await alertDialog({ title: '無法讀取 zip', message: String(e?.message || e) });
     return;
   }
+  let multi = null;
+  try { multi = await readMultiZip(file); } catch { /* 不是多專案格式 */ }
   const r = await choiceDialog({
     title: `上傳 ${file.name}`,
-    message: `共 ${data.files.length} 個檔案。要怎麼匯入？`,
+    message: multi ? `這是包含 ${multi.length} 個專案的備份（共 ${data.files.length} 個檔案）。要怎麼匯入？` : `共 ${data.files.length} 個檔案。要怎麼匯入？`,
     choices: [
-      { value: 'new', label: '建立為新專案', primary: true },
+      ...(multi ? [{ value: 'multi', label: `還原為 ${multi.length} 個專案`, primary: true }] : []),
+      { value: 'new', label: '建立為新專案', primary: !multi },
       { value: 'extract', label: `解壓到「${destDir || '專案根目錄'}」` },
       { value: 'add', label: '當成一般檔案上傳' },
     ],
@@ -74,6 +77,16 @@ export async function uploadZip(file, destDir = app.selectedDir) {
     return;
   }
   warnLarge(data.files);
+  if (r.value === 'multi') {
+    let first = null;
+    for (const p of multi) {
+      const created = await createProjectFrom(p.name, [...p.dirs.map((d) => ({ path: d + '/' })), ...p.files], p.meta?.tests ?? {}, { open: false });
+      first ??= created;
+    }
+    if (first) await openProject(first.id);
+    toast(`已還原 ${multi.length} 個專案`);
+    return;
+  }
   if (r.value === 'new') {
     const name = data.meta?.project?.name || file.name.replace(/\.zip$/i, '');
     await createProjectFrom(name, [...data.dirs.map((d) => ({ path: d + '/' })), ...data.files], data.meta?.tests ?? {});

@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:cloud": "vite --mode cloud",
     "build": "vite build",
+    "build:cloud": "vite build --mode cloud",
     "preview": "vite preview",
     "serve:subpath": "node scripts/serve-subpath.mjs 4173 /some/path/",
     "test": "node --test tests/*.test.js"

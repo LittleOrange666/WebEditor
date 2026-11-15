@@ -3,6 +3,7 @@
   import Modal from './Modal.svelte';
   import { app, updateSettings } from '../lib/store.svelte.js';
   import { INTERACTIVE_SUPPORTED } from '../lib/runner.js';
+  import { IS_CLOUD } from '../lib/config.js';
 
   let { onclose } = $props();
   let proxy = $state(app.settings.codenoterProxy);
@@ -48,14 +49,17 @@
         <option value="self">自行託管（./clang/）</option>
       </select>
     </label>
+    {#if !IS_CLOUD}
     <label class="full">Code Noter 代理網址
       <input type="url" bind:value={proxy} placeholder="https://xxx.workers.dev" onchange={saveProxy} aria-invalid={proxyError ? 'true' : undefined} />
       {#if proxyError}<span class="error">{proxyError}</span>{/if}
       <span class="hint">coder.apcs.top 不允許跨網域呼叫，需經由代理（見 proxy/README.md）。</span>
     </label>
+    {/if}
   </div>
+  {#if IS_CLOUD}<p class="hint">登入後，主題、字型大小等設定會同步到其他裝置。</p>{/if}
   <p class="status">終端機模式：{INTERACTIVE_SUPPORTED ? '✅ 可使用' : '❌ 無法使用（此頁面未啟用跨來源隔離）'}</p>
-  {#snippet footer()}<button class="primary" onclick={() => { saveProxy(); if (!proxyError) onclose(); }}>完成</button>{/snippet}
+  {#snippet footer()}<button class="primary" onclick={() => { if (!IS_CLOUD) saveProxy(); if (!proxyError) onclose(); }}>完成</button>{/snippet}
 </Modal>
 
 <style>

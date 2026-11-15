@@ -2,7 +2,7 @@
   // 專案管理與範例（spec §3.1、§7）
   import Modal from './Modal.svelte';
   import {
-    app, openProject, createProjectFrom, renameProject, duplicateProject, deleteProject, validateProjectName,
+    app, openProject, createProjectFrom, renameProject, duplicateProject, deleteProject, validateProjectName, hooks,
   } from '../lib/store.svelte.js';
   import { promptDialog, confirmDialog, toast } from '../lib/dialog.svelte.js';
   import { EXAMPLES } from '../examples/index.js';
@@ -62,10 +62,13 @@
       {#each app.projects as p (p.id)}
         <li class:current={p.id === app.projectId}>
           <button class="main" onclick={() => open(p)}>
-            <strong>{p.name}</strong>
+            <strong>{p.name}{#if hooks.projectBadge(p)}{@const badge = hooks.projectBadge(p)} <span class="badge" title={badge.title}>{badge.icon}</span>{/if}</strong>
             <small>{p.id === app.projectId ? '目前開啟・' : ''}更新於 {fmt(p.updatedAt)}</small>
           </button>
           <span class="acts">
+            {#each hooks.projectActions(p) as a (a.label)}
+              <button class:danger={a.danger} onclick={() => a.run()}>{a.label}</button>
+            {/each}
             <button onclick={() => rename(p)}>重新命名</button>
             <button onclick={() => dup(p)}>複製</button>
             <button class="danger" onclick={() => del(p)}>刪除</button>
@@ -102,4 +105,5 @@
   .main small { color: var(--muted); font-size: 12px; }
   .acts { display: flex; gap: 4px; flex-wrap: wrap; }
   .tip { font-size: 12px; color: var(--muted); margin: 12px 0 0; }
+  .badge { font-weight: normal; font-size: 12px; }
 </style>
