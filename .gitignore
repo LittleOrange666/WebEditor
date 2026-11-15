@@ -1,7 +1,16 @@
 node_modules
 dist
+dist-cloud
 .wrangler
 .env
 .env.*
 !.env.example
 .idea/
+
+# backend
+backend/.venv
+__pycache__/
+*.pyc
+.pytest_cache/
+backend/*.db
+backend/*.db-*

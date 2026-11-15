@@ -4,9 +4,14 @@
 //   files     { id, projectId, path, kind: 'file' | 'dir', content?: string, binary?: ArrayBuffer, updatedAt }
 //   tests     { fileId, projectId, cases: [{ id, name, input, expected }], timeLimit, compare }
 //   settings  { key, value }
+// 第 2 版（雲端版同步用，spec_new §8；純前端版也建立但不使用）：
+//   projects 另有 sync: 'cloud' | 'local'、ownerId
+//   dirty     { key: 'p:<id>' | 'e:<id>', type, id, projectId, at, error?, deleteRemote? }  待上傳的變更
+//   revs      { id, rev }  已同步的專案／項目在伺服器上的 rev
+//   meta      { key, ... }  同步游標等
 
 const DB_NAME = 'webeditor';
-const VERSION = 1;
+const VERSION = 2;
 
 let dbPromise = null;
 
@@ -15,14 +20,22 @@ export function openDb() {
     dbPromise = new Promise((resolve, reject) => {
       if (typeof indexedDB === 'undefined') { reject(new Error('此瀏覽器不支援 IndexedDB')); return; }
       const req = indexedDB.open(DB_NAME, VERSION);
-      req.onupgradeneeded = () => {
+      req.onupgradeneeded = (e) => {
         const db = req.result;
-        db.createObjectStore('projects', { keyPath: 'id' });
-        const files = db.createObjectStore('files', { keyPath: 'id' });
-        files.createIndex('projectId', 'projectId');
-        const tests = db.createObjectStore('tests', { keyPath: 'fileId' });
-        tests.createIndex('projectId', 'projectId');
-        db.createObjectStore('settings', { keyPath: 'key' });
+        if (e.oldVersion < 1) {
+          db.createObjectStore('projects', { keyPath: 'id' });
+          const files = db.createObjectStore('files', { keyPath: 'id' });
+          files.createIndex('projectId', 'projectId');
+          const tests = db.createObjectStore('tests', { keyPath: 'fileId' });
+          tests.createIndex('projectId', 'projectId');
+          db.createObjectStore('settings', { keyPath: 'key' });
+        }
+        if (e.oldVersion < 2) {
+          const dirty = db.createObjectStore('dirty', { keyPath: 'key' });
+          dirty.createIndex('projectId', 'projectId');
+          db.createObjectStore('revs', { keyPath: 'id' });
+          db.createObjectStore('meta', { keyPath: 'key' });
+        }
       };
       req.onsuccess = () => {
         const db = req.result;
@@ -83,6 +96,18 @@ export async function batch(ops) {
   }
   await done(tx);
 }
+
+/** 在同一個交易中讀取並修改：fn(stores) 可同步呼叫 get/put/delete（回傳 IDBRequest） */
+export async function transact(storeNames, fn) {
+  const db = await openDb();
+  const tx = db.transaction(storeNames, 'readwrite');
+  const stores = Object.fromEntries(storeNames.map((n) => [n, tx.objectStore(n)]));
+  const result = await fn(stores, promisify);
+  await done(tx);
+  return result;
+}
+
+export { promisify };
 
 export const put = (store, value) => batch([{ store, put: value }]);
 export const del = (store, key) => batch([{ store, del: key }]);

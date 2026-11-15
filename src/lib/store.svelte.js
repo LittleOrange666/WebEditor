@@ -33,6 +33,25 @@ export const app = $state({
   settings: { ...DEFAULT_SETTINGS },
 });
 
+/**
+ * 版本擴充點（雲端版在 src/edition/cloud.js 設定，spec_new §4）
+ * - projectDefaults()：新專案的額外欄位（例如 sync、ownerId）
+ * - visible(project)：專案是否顯示在清單中（隱藏其他帳號的雲端專案）
+ * - augment(ops)：寫入 IndexedDB 前附加的操作（例如標記待同步）
+ * - settingsChanged(keys)：設定被修改
+ * - entryBadge(entry)、projectBadge(project)：檔案樹／專案清單的小圖示 { icon, title } 或 null
+ * - projectActions(project)：專案清單中額外的動作 [{ label, run, danger? }]
+ */
+export const hooks = {
+  projectDefaults: () => ({}),
+  visible: () => true,
+  augment: (ops) => ops,
+  settingsChanged: () => {},
+  entryBadge: () => null,
+  projectBadge: () => null,
+  projectActions: () => [],
+};
+
 const SESSION_KEY = 'webeditor.session.v1';
 const LAST_PROJECT_KEY = 'webeditor.lastProject';
 const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('webeditor') : null;
@@ -76,7 +95,7 @@ function reportSaveError(e) {
 
 async function write(ops) {
   try {
-    await db.batch(ops);
+    await db.batch(hooks.augment(ops));
     app.saveError = '';
   } catch (e) {
     reportSaveError(e);
@@ -116,7 +135,7 @@ export async function init() {
   try {
     const [projects, settings] = await Promise.all([db.getAll('projects'), db.get('settings', 'global')]);
     if (settings) Object.assign(app.settings, settings.value);
-    app.projects = sortProjects(projects);
+    app.projects = sortProjects(projects.filter((p) => hooks.visible(p)));
     try { await navigator.storage?.persist?.(); } catch { /* 瀏覽器不一定同意 */ }
 
     if (!app.projects.length) {
@@ -190,7 +209,7 @@ export function uniqueProjectName(name) {
  */
 export async function createProjectFrom(name, files = [], tests = {}, { open = true } = {}) {
   const now = Date.now();
-  const project = { id: db.newId(), name: uniqueProjectName(name), createdAt: now, updatedAt: now };
+  const project = { id: db.newId(), name: uniqueProjectName(name), createdAt: now, updatedAt: now, ...hooks.projectDefaults() };
   const entries = buildEntries(project.id, files);
   const ops = [{ store: 'projects', put: project }, ...entries.map((e) => ({ store: 'files', put: e }))];
   for (const [path, t] of Object.entries(tests)) {
@@ -225,6 +244,25 @@ function buildEntries(projectId, files, existing = []) {
     out.push(rec);
   }
   return out;
+}
+
+/** 重新讀取專案清單（登入、登出、同步後）；目前的專案不再顯示時切換到其他專案 */
+export async function refreshProjects() {
+  const projects = await db.getAll('projects');
+  app.projects = sortProjects(projects.filter((p) => hooks.visible(p)));
+  if (!app.projects.some((p) => p.id === app.projectId)) {
+    if (app.projects.length) await openProject(app.projects[0].id);
+    else await createProjectFrom(DEFAULT_PROJECT.name, DEFAULT_PROJECT.files, DEFAULT_PROJECT.tests);
+  }
+}
+
+/** 修改專案的同步屬性（不標記為待同步，由呼叫端處理） */
+export async function setProjectFields(id, fields) {
+  const p = app.projects.find((x) => x.id === id);
+  const rec = p ? { ...$state.snapshot(p), ...fields } : { ...(await db.get('projects', id)), ...fields };
+  await db.put('projects', rec);
+  if (p) Object.assign(p, fields);
+  post({ t: 'projects' });
 }
 
 export async function renameProject(id, name) {
@@ -520,6 +558,7 @@ export async function updateSettings(patch) {
   try {
     await db.put('settings', { key: 'global', value: $state.snapshot(app.settings) });
     post({ t: 'settings' });
+    hooks.settingsChanged(Object.keys(patch));
   } catch (e) { reportSaveError(e); }
 }
 
@@ -529,10 +568,11 @@ async function onMessage(m) {
   try {
     if (m.t === 'projects') {
       const projects = await db.getAll('projects');
-      app.projects = sortProjects(projects);
+      app.projects = sortProjects(projects.filter((p) => hooks.visible(p)));
       if (m.deleted && m.deleted === app.projectId) {
-        toast('目前的專案已在其他分頁被刪除');
+        toast(m.remote ? '目前的專案已在其他裝置被刪除' : '目前的專案已在其他分頁被刪除');
         if (app.projects.length) await openProject(app.projects[0].id);
+        else await createProjectFrom(DEFAULT_PROJECT.name, DEFAULT_PROJECT.files, DEFAULT_PROJECT.tests);
       }
     } else if (m.t === 'files' && m.projectId === app.projectId) {
       const files = await db.getAllByIndex('files', 'projectId', app.projectId);
@@ -548,13 +588,17 @@ async function onMessage(m) {
       app.files = files;
       if (removed.length) {
         for (const t of removed) closeTab(t);
-        toast('有開啟中的檔案已在其他分頁被刪除');
+        if (!m.quiet) toast(m.remote ? '有開啟中的檔案已在其他裝置被刪除' : '有開啟中的檔案已在其他分頁被刪除');
       }
     } else if (m.t === 'content' && m.projectId === app.projectId) {
       if (pending.has(m.id) && canEdit(m.id)) return;
       const rec = await db.get('files', m.id);
       const f = fileById(m.id);
-      if (rec && f) { f.content = rec.content; f.binary = rec.binary; f.updatedAt = rec.updatedAt; }
+      if (rec && f) {
+        const changed = f.content !== rec.content || f.path !== rec.path;
+        f.content = rec.content; f.binary = rec.binary; f.updatedAt = rec.updatedAt; f.path = rec.path;
+        if (m.remote && changed && app.openTabs.includes(m.id)) toast(`${basename(rec.path)} 已被其他裝置更新`);
+      }
     } else if (m.t === 'tests' && m.projectId === app.projectId) {
       const rec = await db.get('tests', m.fileId);
       if (rec) app.tests[m.fileId] = rec;
