@@ -1,0 +1,8 @@
+name = "webeditor-codenoter-proxy"
+main = "worker.js"
+compatibility_date = "2024-09-01"
+
+[vars]
+# 允許呼叫此代理的 WebEditor 網址（逗號分隔，需包含 https:// 與網域，不含路徑）
+ALLOWED_ORIGINS = "http://localhost:5173,http://localhost:4173,https://xn--gew.tw,https://littleorange.top"
+

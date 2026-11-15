@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WebEditor 程式編輯器</title>
+    <!-- 無法設定 COOP/COEP 標頭的主機（例如 GitHub Pages）由 Service Worker 補上（spec §6.4.3） -->
+    <script>window.coi = { quiet: true };</script>
+    <script src="./coi-serviceworker.js"></script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
